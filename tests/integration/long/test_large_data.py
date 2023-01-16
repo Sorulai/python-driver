@@ -26,7 +26,6 @@ from cassandra.query import dict_factory
 from cassandra.query import SimpleStatement
 from tests.integration import use_singledc, PROTOCOL_VERSION, TestCluster
 from tests.integration.long.utils import create_schema
-
 import unittest
 
 log = logging.getLogger(__name__)
@@ -105,13 +104,13 @@ class LargeDataTests(unittest.TestCase):
         session = self.make_session_and_keyspace()
         session.execute('CREATE TABLE %s (k INT, i INT, PRIMARY KEY(k, i))' % table)
 
-        prepared = session.prepare('INSERT INTO %s (k, i) VALUES (0, ?)' % (table, ))
+        prepared = session.prepare('INSERT INTO %s (k, i) VALUES (0, ?)' % (table,))
 
         # Write via async futures
-        self.batch_futures(session, (prepared.bind((i, )) for i in range(100000)))
+        self.batch_futures(session, (prepared.bind((i,)) for i in range(100000)))
 
         # Read
-        results = session.execute('SELECT i FROM %s WHERE k=0' % (table, ))
+        results = session.execute('SELECT i FROM %s WHERE k=0' % (table,))
 
         # Verify
         for i, row in enumerate(results):
@@ -146,11 +145,11 @@ class LargeDataTests(unittest.TestCase):
 
         # Execute insert with larger timeout, since it's a wide row
         try:
-            session.execute(statement,timeout=30.0)
+            session.execute(statement, timeout=30.0)
 
         except OperationTimedOut:
-            #If we timeout on insertion that's bad but it could be just slow underlying c*
-            #Attempt to validate anyway, we will fail if we don't get the right data back.
+            # If we timeout on insertion that's bad but it could be just slow underlying c*
+            # Attempt to validate anyway, we will fail if we don't get the right data back.
             ex_type, ex, tb = sys.exc_info()
             log.warning("Batch wide row insertion timed out, this may require additional investigation")
             log.warning("{0}: {1} Backtrace: {2}".format(ex_type.__name__, ex, traceback.extract_tb(tb)))
@@ -160,12 +159,13 @@ class LargeDataTests(unittest.TestCase):
         results = session.execute('SELECT i FROM %s WHERE k=%s' % (table, 0))
         lastvalue = 0
         for j, row in enumerate(results):
-            lastValue=row['i']
+            lastValue = row['i']
             self.assertEqual(lastValue, j)
 
-        #check the last value make sure it's what we expect
-        index_value = to_insert-1
-        self.assertEqual(lastValue,index_value,"Verification failed only found {0} inserted we were expecting {1}".format(j,index_value))
+        # check the last value make sure it's what we expect
+        index_value = to_insert - 1
+        self.assertEqual(lastValue, index_value,
+                         "Verification failed only found {0} inserted we were expecting {1}".format(j, index_value))
 
         session.cluster.shutdown()
 
@@ -188,21 +188,23 @@ class LargeDataTests(unittest.TestCase):
 
         # Prepare statement and run insertions
         to_insert = 100000
-        prepared = session.prepare('INSERT INTO %s (k, i, v) VALUES (0, ?, 0xCAFE)' % (table, ))
-        timeouts = self.batch_futures(session, (prepared.bind((i, )) for i in range(to_insert)))
+        prepared = session.prepare('INSERT INTO %s (k, i, v) VALUES (0, ?, 0xCAFE)' % (table,))
+        timeouts = self.batch_futures(session, (prepared.bind((i,)) for i in range(to_insert)))
 
         # Read
-        results = session.execute('SELECT i, v FROM %s WHERE k=0' % (table, ))
+        results = session.execute('SELECT i, v FROM %s WHERE k=0' % (table,))
 
         # number of expected results
-        expected_results = to_insert-timeouts-1
+        expected_results = to_insert - timeouts - 1
 
         # Verify
         bb = pack('>H', 0xCAFE)
         for i, row in enumerate(results):
             self.assertEqual(row['v'], bb)
 
-        self.assertGreaterEqual(i, expected_results, "Verification failed only found {0} inserted we were expecting {1}".format(i,expected_results))
+        self.assertGreaterEqual(i, expected_results,
+                                "Verification failed only found {0} inserted we were expecting {1}".format(i,
+                                                                                                           expected_results))
 
         session.cluster.shutdown()
 
@@ -268,4 +270,20 @@ class LargeDataTests(unittest.TestCase):
             for i in range(table_width):
                 self.assertEqual(row[create_column_name(i)], i)
 
+        session.cluster.shutdown()
+
+    def test_error(self):
+        """
+        Test for inserting large number of rows
+
+        @test_category queries
+        """
+        table = 'large_table'
+        session = self.make_session_and_keyspace()
+        session.execute('CREATE TABLE %s (k int PRIMARY KEY, date_u timestamp)' % table)
+        date_last = '2021-01-28 11:24:00'
+        date_next = '2020-01-01 11:24:00'
+        for i in range(100):
+            session.execute("INSERT INTO %s (k, date_u) VALUES (%s, '%s')" % (table, i, date_last),timeout=10000)
+        results = session.execute("SELECT k FROM %s WHERE date_u <'%s' allow filtering" % (table, date_next), timeout=10000)
         session.cluster.shutdown()
